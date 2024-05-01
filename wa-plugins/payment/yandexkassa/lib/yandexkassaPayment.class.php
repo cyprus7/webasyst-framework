@@ -257,6 +257,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             if (waSystemConfig::isDebug()) {
                 self::log($this->id, $debug);
             }
+            $receipt = false;
             if (!empty($payment['status']) && ($payment['status'] === 'waiting_for_capture')) {                
                 if (empty($transaction_raw_data['order_data'])) {
                     $transaction_raw_data['order_data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
@@ -273,11 +274,13 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                 }
 
                 $hash = md5(var_export($transaction, true));
-
+                $receipt = $transaction['receipt'];
+                if (empty($transaction['receipt']) || $this->manual_capture) {
+                    unset($transaction['receipt']);
+                } 
                 $payment = $this->apiQuery('capture', $transaction, $hash);
                 $transaction_data = $this->formalizeData($payment);
                 if ($payment['status'] === 'succeeded') {
-                    $receipt = $transaction['receipt'];
                     $receipt['type'] = 'payment';
                     $receipt['payment_id'] = $payment['id'];
                     $receipt['send'] = true;
