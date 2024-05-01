@@ -342,7 +342,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             );
         }
 
-        if (empty($data['receipt'])) {
+        if (empty($data['receipt']) || $this->manual_capture) {
             unset($data['receipt']);
         }
         $return = array(
