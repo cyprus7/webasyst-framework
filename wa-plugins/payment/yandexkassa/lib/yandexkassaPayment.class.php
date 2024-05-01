@@ -268,13 +268,13 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                     //handle changed amount
                     $transaction['amount'] = $order->total;
                     $transaction['currency_id'] = $order->currency;
-                    $transaction['receipt'] = $this->getReceiptData($order);
+                    $receipt = $this->getReceiptData($order);
+                    $transaction['receipt'] = $receipt;
                 } elseif ($this->receipt && !empty($payment['receipt'])) {
                     $transaction['receipt'] = $payment['receipt'];
                 }
 
                 $hash = md5(var_export($transaction, true));
-                $receipt = $transaction['receipt'];
                 if (empty($transaction['receipt']) || $this->manual_capture) {
                     unset($transaction['receipt']);
                 } 
@@ -296,7 +296,15 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                         );
                     }
                     $receipt['settlements'] = $settlements;
+                    $debug['receipt'] = $receipt;
+                    if (waSystemConfig::isDebug()) {
+                        self::log($this->id, $debug);
+                    }
                     $this->apiQuery('send_receipt', $receipt, md5(var_export($payment['id'], true)));
+                }
+                $debug['status'] = $payment['status'];
+                if (waSystemConfig::isDebug()) {
+                    self::log($this->id, $debug);
                 }
                 wa()->getStorage()->remove('yoo_order_' . $transaction['order_id']);
             } else {
