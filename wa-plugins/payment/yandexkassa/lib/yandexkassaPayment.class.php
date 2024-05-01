@@ -133,6 +133,13 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
 
             $storage = wa()->getStorage();
             $storage->set('yoo_order_' . $fields['order_id'], $order_data);
+            $debug = array()
+            $debug['storage'] = 'yoo_order_' . $fields['order_id'];
+            $debug['order_data'] = $order_data;
+            $debug['data'] = wa()->getStorage()->get('yoo_order_' . $fields['order_id']);
+            if (waSystemConfig::isDebug()) {
+                self::log($this->id, $debug);
+            }
             $transactions = $transaction_model->getByFields($fields);
             $actual_transaction_data = [];
             $unique_native_ids = [];
@@ -243,9 +250,13 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
         try {
             $transaction = $transaction_raw_data['transaction'];
 
-
             $payment = $this->getPaymentInfo($transaction['native_id']);
-
+            $debug = array()
+            $debug['storage'] = 'yoo_order_' . $transaction['order_id'];
+            $debug['data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
+            if (waSystemConfig::isDebug()) {
+                self::log($this->id, $debug);
+            }
             if (!empty($payment['status']) && ($payment['status'] === 'waiting_for_capture')) {                
                 if (empty($transaction_raw_data['order_data'])) {
                     $transaction_raw_data['order_data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
@@ -284,10 +295,11 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                     $receipt['settlements'] = $settlements;
                     $this->apiQuery('send_receipt', $receipt, md5(var_export($payment['id'], true)));
                 }
+                wa()->getStorage()->remove('yoo_order_' . $transaction['order_id']);
             } else {
                 $transaction_data = $this->handlePayment($payment);
             }
-            wa()->getStorage()->remove('yoo_order_' . $transaction['order_id']);
+            
             return array(
                 'result'      => 0,
                 'data'        => $transaction_data,
