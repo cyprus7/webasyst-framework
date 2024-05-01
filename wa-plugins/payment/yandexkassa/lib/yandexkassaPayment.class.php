@@ -133,7 +133,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
 
             $storage = wa()->getStorage();
             $storage->set('yoo_order_' . $fields['order_id'], $order_data);
-            $debug = array()
+            $debug = array();
             $debug['storage'] = 'yoo_order_' . $fields['order_id'];
             $debug['order_data'] = $order_data;
             $debug['data'] = wa()->getStorage()->get('yoo_order_' . $fields['order_id']);
@@ -251,7 +251,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             $transaction = $transaction_raw_data['transaction'];
 
             $payment = $this->getPaymentInfo($transaction['native_id']);
-            $debug = array()
+            $debug = array();
             $debug['storage'] = 'yoo_order_' . $transaction['order_id'];
             $debug['data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
             if (waSystemConfig::isDebug()) {
