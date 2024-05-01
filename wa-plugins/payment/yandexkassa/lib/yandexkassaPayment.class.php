@@ -261,6 +261,33 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
 
                 $payment = $this->apiQuery('capture', $transaction, $hash);
                 $transaction_data = $this->formalizeData($payment);
+                if ($payment['status'] === 'succeeded') {
+                    $receipt = $transaction['receipt'];
+                    $receipt['type'] = 'payment';
+                    $receipt['payment_id'] = $payment['id'];
+                    $receipt['send'] = true;
+                    $items = ifset($receipt, 'items', array());
+                    //  $item = array(
+                    //     'quantity'     => 1,
+                    //     'name'         => mb_substr($order->shipping_name, 0, 128),
+                    //     'amount'       => round($order->shipping, 2),
+                    //     'tax_rate'     => $order->shipping_tax_rate,
+                    //     'tax_included' => ($order->shipping_tax_included !== null) ? $order->shipping_tax_included : true,
+                    //     'type'         => 'shipping',
+                    // );   
+                    $settlements = array();
+                    foreach ($items as $item) {
+                        $settlements[] = array(
+                            'type'         => 'payment',
+                            'amount'       => array(
+                                'value'    => round($item['amount'] * $item['quantity'], 2),
+                                'currency' => 'RUB',
+                            ),
+                        );
+                    }
+                    $receipt['settlements'] = $settlements;
+                    $this->apiQuery('send_receipt', $receipt, md5(var_export($payment['id'], true)));
+                }
             } else {
                 $transaction_data = $this->handlePayment($payment);
             }
@@ -364,6 +391,9 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
     {
         $url = 'https://api.yookassa.ru/v3/';
         switch ($method) {
+            case 'send_receipt': #https://api.yookassa.ru/v3/receipts
+                $url .= 'receipts';
+                break;
             case 'info': #https://api.yookassa.ru/v3/payments/{payment_id}
                 $url .= sprintf('payments/%s', $data);
                 $data = null;
