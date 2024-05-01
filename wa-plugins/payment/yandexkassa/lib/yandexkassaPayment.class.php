@@ -131,6 +131,8 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             );
             $fields['order_id'] = filter_var($order_data['id'], FILTER_SANITIZE_NUMBER_INT);
 
+            $storage = wa()->getStorage();
+            $storage->set('yoo_order_' . $fields['order_id'], $order_data);
             $transactions = $transaction_model->getByFields($fields);
             $actual_transaction_data = [];
             $unique_native_ids = [];
@@ -245,6 +247,10 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             $payment = $this->getPaymentInfo($transaction['native_id']);
 
             if (!empty($payment['status']) && ($payment['status'] === 'waiting_for_capture')) {                
+                if (empty($transaction_raw_data['order_data'])) {
+                    $transaction_raw_data['order_data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
+                }
+
                 if (!empty($transaction_raw_data['order_data'])) {
                     $order = waOrder::factory($transaction_raw_data['order_data']);
                     //handle changed amount
@@ -264,7 +270,6 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                     $receipt['type'] = 'payment';
                     $receipt['payment_id'] = $payment['id'];
                     $receipt['send'] = true;
-                    $receipt['order_data'] = $transaction_raw_data;
                     $items = ifset($receipt, 'items', array()); 
                     $settlements = array();
                     foreach ($items as $item) {
@@ -282,7 +287,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             } else {
                 $transaction_data = $this->handlePayment($payment);
             }
-
+            wa()->getStorage()->remove('yoo_order_' . $transaction['order_id']);
             return array(
                 'result'      => 0,
                 'data'        => $transaction_data,
