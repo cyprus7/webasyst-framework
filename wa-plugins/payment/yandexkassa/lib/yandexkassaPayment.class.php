@@ -256,8 +256,10 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             $debug['data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
             $debug['status0'] = $payment['status'];
 
-            $receipt = false;
-            if (!empty($payment['status']) && ($payment['status'] === 'waiting_for_capture')) {                
+            if (!empty($payment['status']) && ($payment['status'] === 'waiting_for_capture')) {   
+                if (waSystemConfig::isDebug()) {
+                    self::log($this->id, array('status' => $payment['status'], 'payment' => $payment));
+                }             
                 if (empty($transaction_raw_data['order_data'])) {
                     $transaction_raw_data['order_data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
                 }
@@ -279,6 +281,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                 } 
                 $payment = $this->apiQuery('capture', $transaction, $hash);
                 $transaction_data = $this->formalizeData($payment);
+                $debug['status'] = $payment['status'];
                 if ($payment['status'] === 'succeeded') {
                     $receipt['type'] = 'payment';
                     $receipt['payment_id'] = $payment['id'];
@@ -296,19 +299,15 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                     }
                     $receipt['settlements'] = $settlements;
                     $debug['receipt'] = $receipt;
-                    if (waSystemConfig::isDebug()) {
-                        self::log($this->id, $debug);
-                    }
                     $this->apiQuery('send_receipt', $receipt, md5(var_export($payment['id'], true)));
                 }
-                $debug['status'] = $payment['status'];
                 wa()->getStorage()->remove('yoo_order_' . $transaction['order_id']);
             } else {
                 $transaction_data = $this->handlePayment($payment);
             }
             if (waSystemConfig::isDebug()) {
                 self::log($this->id, $debug);
-            }            
+            }     
             return array(
                 'result'      => 0,
                 'data'        => $transaction_data,
