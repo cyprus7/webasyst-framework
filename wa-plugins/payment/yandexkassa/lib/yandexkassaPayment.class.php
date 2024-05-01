@@ -254,6 +254,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             $debug = array();
             $debug['storage'] = 'yoo_order_' . $transaction['order_id'];
             $debug['data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
+            $debug['status0'] = $payment['status'];
             if (waSystemConfig::isDebug()) {
                 self::log($this->id, $debug);
             }
