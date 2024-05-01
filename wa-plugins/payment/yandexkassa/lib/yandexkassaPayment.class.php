@@ -255,9 +255,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             $debug['storage'] = 'yoo_order_' . $transaction['order_id'];
             $debug['data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
             $debug['status0'] = $payment['status'];
-            if (waSystemConfig::isDebug()) {
-                self::log($this->id, $debug);
-            }
+
             $receipt = false;
             if (!empty($payment['status']) && ($payment['status'] === 'waiting_for_capture')) {                
                 if (empty($transaction_raw_data['order_data'])) {
@@ -270,14 +268,14 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                     $transaction['amount'] = $order->total;
                     $transaction['currency_id'] = $order->currency;
                     $receipt = $this->getReceiptData($order);
-                    $transaction['receipt'] = $receipt;
-                } elseif ($this->receipt && !empty($payment['receipt'])) {
+                    $debug['receipt'] = $receipt;
+                } elseif ($this->receipt && !empty($payment['receipt']) && !$this->manual_capture) {
                     $transaction['receipt'] = $payment['receipt'];
                 }
 
                 $hash = md5(var_export($transaction, true));
-                if (empty($transaction['receipt']) || $this->manual_capture) {
-                    unset($transaction['receipt']);
+                if (!empty($receipt) && !$this->manual_capture) {
+                    $transaction['receipt'] = $receipt;
                 } 
                 $payment = $this->apiQuery('capture', $transaction, $hash);
                 $transaction_data = $this->formalizeData($payment);
@@ -304,14 +302,13 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                     $this->apiQuery('send_receipt', $receipt, md5(var_export($payment['id'], true)));
                 }
                 $debug['status'] = $payment['status'];
-                if (waSystemConfig::isDebug()) {
-                    self::log($this->id, $debug);
-                }
                 wa()->getStorage()->remove('yoo_order_' . $transaction['order_id']);
             } else {
                 $transaction_data = $this->handlePayment($payment);
             }
-            
+            if (waSystemConfig::isDebug()) {
+                self::log($this->id, $debug);
+            }            
             return array(
                 'result'      => 0,
                 'data'        => $transaction_data,
