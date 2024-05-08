@@ -286,7 +286,16 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                     $receipt['payment_id'] = $payment['id'];
                     $receipt['send'] = true;
                     $items = ifset($receipt, 'items', array()); 
-                    $settlements = array();
+                    $settlements = [];
+                    foreach ($items as $item) {
+                        $settlements[] = [
+                            'type' => 'prepayment',
+                            'amount' => [
+                                'value' => $item['amount']['value'] * $item['quantity'],
+                                'currency' => $item['amount']['currency']
+                            ]
+                        ];
+                    }
                     $receipt['settlements'] = $settlements;
                     $debug['receipt2'] = $receipt;
                     if (waSystemConfig::isDebug()) {
