@@ -131,15 +131,8 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             );
             $fields['order_id'] = filter_var($order_data['id'], FILTER_SANITIZE_NUMBER_INT);
 
-            $storage = wa()->getStorage();
-            $storage->set('yoo_order_' . $fields['order_id'], $order_data);
             $debug = array();
-            $debug['storage'] = 'yoo_order_' . $fields['order_id'];
-            $debug['order_data'] = $order_data;
-            $debug['data'] = wa()->getStorage()->get('yoo_order_' . $fields['order_id']);
-            if (waSystemConfig::isDebug()) {
-                self::log($this->id, $debug);
-            }
+
             $transactions = $transaction_model->getByFields($fields);
             $actual_transaction_data = [];
             $unique_native_ids = [];
@@ -156,6 +149,15 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             }
 
             $order = waOrder::factory($order_data);
+            $temp_order = new waTEMPorderModel();
+            $orderArray = $this->getReceiptData($order);
+            $jsonOrderData = json_encode($orderArray);
+            $temp_order->set($fields['order_id'], $jsonOrderData);
+            $debug['$order_id'] = $fields['order_id'];
+            $debug['$orderArray'] = $orderArray;
+            if (waSystemConfig::isDebug()) {
+                self::log($this->id, $debug);
+            }
 
             $type = $this->payment_type;
             if ($type === 'customer') {
@@ -252,25 +254,22 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
 
             $payment = $this->getPaymentInfo($transaction['native_id']);
             $debug = array();
-            $debug['storage'] = 'yoo_order_' . $transaction['order_id'];
-            $debug['data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
-            $debug['status0'] = $payment['status'];
+            $temp_order = new waTEMPorderModel();
+            $temp_order_str = $temp_order->get($transaction['order_id']);
+            $json_string = key($temp_order_str);
+            $debug['temp_order_str'] = $json_string;
+            
+            $receipt = json_decode($json_string, true);
+            $debug['temp_order'] = $receipt;
 
             if (!empty($payment['status']) && ($payment['status'] === 'waiting_for_capture')) {   
-                if (waSystemConfig::isDebug()) {
-                    self::log($this->id, array('status' => $payment['status'], 'payment' => $payment));
-                }             
-                if (empty($transaction_raw_data['order_data'])) {
-                    $transaction_raw_data['order_data'] = wa()->getStorage()->get('yoo_order_' . $transaction['order_id']);
-                }
-
                 if (!empty($transaction_raw_data['order_data'])) {
                     $order = waOrder::factory($transaction_raw_data['order_data']);
                     //handle changed amount
                     $transaction['amount'] = $order->total;
                     $transaction['currency_id'] = $order->currency;
                     $receipt = $this->getReceiptData($order);
-                    $debug['receipt'] = $receipt;
+                    $debug['receipt1'] = $receipt;
                 } elseif ($this->receipt && !empty($payment['receipt']) && !$this->manual_capture) {
                     $transaction['receipt'] = $payment['receipt'];
                 }
@@ -288,26 +287,23 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                     $receipt['send'] = true;
                     $items = ifset($receipt, 'items', array()); 
                     $settlements = array();
-                    foreach ($items as $item) {
-                        $settlements[] = array(
-                            'type'         => 'payment',
-                            'amount'       => array(
-                                'value'    => round($item['amount'] * $item['quantity'], 2),
-                                'currency' => 'RUB',
-                            ),
-                        );
-                    }
                     $receipt['settlements'] = $settlements;
-                    $debug['receipt'] = $receipt;
+                    $debug['receipt2'] = $receipt;
+                    if (waSystemConfig::isDebug()) {
+                        self::log($this->id, $debug);
+                    }
                     $this->apiQuery('send_receipt', $receipt, md5(var_export($payment['id'], true)));
+                    // wa()->getStorage()->remove('yoo_order_' . $transaction['order_id']);
+                } else {
+                    $debug['receipt3'] = $receipt;
+                    if (waSystemConfig::isDebug()) {
+                        self::log($this->id, $debug);
+                    }
                 }
-                wa()->getStorage()->remove('yoo_order_' . $transaction['order_id']);
             } else {
                 $transaction_data = $this->handlePayment($payment);
             }
-            if (waSystemConfig::isDebug()) {
-                self::log($this->id, $debug);
-            }     
+
             return array(
                 'result'      => 0,
                 'data'        => $transaction_data,
