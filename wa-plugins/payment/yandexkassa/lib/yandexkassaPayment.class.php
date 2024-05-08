@@ -289,7 +289,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                     $settlements = [];
                     foreach ($items as $item) {
                         $settlements[] = [
-                            'type' => 'prepayment',
+                            'type' => 'cashless',
                             'amount' => [
                                 'value' => $item['amount']['value'] * $item['quantity'],
                                 'currency' => $item['amount']['currency']
