@@ -110,7 +110,16 @@ HTML
         'control_type'     => waHtmlControl::SELECT,
         'options_callback' => array($this, 'settingsCurrencyOptions'),
     ),
-
+    'payment_ffd' => array(
+        'value'        => '1.05',
+        'title'        => 'Версия ФФД',
+        'description'  => 'Текущая выбранная версия должна совпадать с версией в настройках ОФД.',
+        'control_type' => waHtmlControl::SELECT,
+        'options' => array(
+            '1.05' => '1.05',
+            '1.2'  => '1.2'
+        )
+    ),
     'manual_capture' => array(
         'value'        => false,
         'title'        => 'Двухстадийная оплата',

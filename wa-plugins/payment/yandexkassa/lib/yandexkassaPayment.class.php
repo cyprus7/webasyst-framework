@@ -15,6 +15,7 @@
  * @property-read string  $payment_subject_type_shipping
  * @property-read string  $payment_method_type
  * @property-read string  $merchant_currency
+ * @property-read string  $payment_ffd
  * @property-read boolean $manual_capture
  */
 class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCancel, waIPaymentRefund, waIPaymentCapture
@@ -131,8 +132,6 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             );
             $fields['order_id'] = filter_var($order_data['id'], FILTER_SANITIZE_NUMBER_INT);
 
-            $debug = array();
-
             $transactions = $transaction_model->getByFields($fields);
             $actual_transaction_data = [];
             $unique_native_ids = [];
@@ -149,14 +148,18 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             }
 
             $order = waOrder::factory($order_data);
-            $temp_order = new waTEMPorderModel();
-            $orderArray = $this->getReceiptData($order);
-            $jsonOrderData = json_encode($orderArray);
-            $temp_order->set($fields['order_id'], $jsonOrderData);
-            $debug['$order_id'] = $fields['order_id'];
-            $debug['$orderArray'] = $orderArray;
-            if (waSystemConfig::isDebug()) {
-                self::log($this->id, $debug);
+            if ($this->manual_capture && $this->receipt) {
+                $temp_order = new waTEMPorderModel();
+                $receipt = $this->getReceiptData($order);
+                if (!empty($receipt)) {
+                    $temp_order->set($fields['order_id'], json_encode($receipt));
+                    if (waSystemConfig::isDebug()) {
+                        self::log($this->id, array(
+                            'order_id' => $fields['order_id'],
+                            'receipt'  => $receipt,
+                        ));
+                    }
+                }
             }
 
             $type = $this->payment_type;
@@ -254,13 +257,15 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
 
             $payment = $this->getPaymentInfo($transaction['native_id']);
             $debug = array();
-            $temp_order = new waTEMPorderModel();
-            $temp_order_str = $temp_order->get($transaction['order_id']);
-            $json_string = key($temp_order_str);
-            $debug['temp_order_str'] = $json_string;
-            
-            $receipt = json_decode($json_string, true);
-            $debug['temp_order'] = $receipt;
+            $receipt = null;
+            if ($this->manual_capture && $this->receipt) {
+                $temp_order = new waTEMPorderModel();
+                $temp_order_str = $temp_order->get($transaction['order_id']);
+                $json_string = $temp_order_str ? key($temp_order_str) : null;
+                $debug['temp_order_str'] = $json_string;
+                $receipt = $json_string ? json_decode($json_string, true) : null;
+                $debug['temp_order'] = $receipt;
+            }
 
             if (!empty($payment['status']) && ($payment['status'] === 'waiting_for_capture')) {   
                 if (!empty($transaction_raw_data['order_data'])) {
@@ -281,7 +286,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                 $payment = $this->apiQuery('capture', $transaction, $hash);
                 $transaction_data = $this->formalizeData($payment);
                 $debug['status'] = $payment['status'];
-                if ($payment['status'] === 'succeeded') {
+                if ($payment['status'] === 'succeeded' && $this->manual_capture && !empty($receipt)) {
                     $receipt['type'] = 'payment';
                     $receipt['payment_id'] = $payment['id'];
                     $receipt['send'] = true;
@@ -943,16 +948,14 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
 
         $receipt = array(
             'customer' => $customer,
-            'items'    => array(),
+            'items'    => $this->getReceiptItems($order),
         );
         if ($this->tax_system_code) {
             $receipt['tax_system_code'] = $this->tax_system_code;
         }
 
-        $receipt['items'] = $this->getReceiptItems($order);
-
         #shipping
-        if (($order->shipping) || strlen($order->shipping_name)) {
+        if (($order->shipping) || strlen((string) $order->shipping_name)) {
             $item = array(
                 'quantity'     => 1,
                 'name'         => mb_substr($order->shipping_name, 0, 128),
@@ -969,6 +972,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
         }
 
         $receipt += $customer;
+
         return $receipt;
     }
 
@@ -1081,6 +1085,23 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             $fiscal_code = $this->convertToFiscalCode($item['chestnyznak']);
             if ($fiscal_code) {
                 $result['product_code'] = $fiscal_code;
+            }
+        }
+        if ($this->payment_ffd === '1.2') {
+            $result['measure'] = $this->measureMap($item);
+            if (isset($item[self::CHESTNYZNAK_PRODUCT_CODE])) {
+                $result = [
+                    'mark_mode' => 0,
+                    'payment_subject' => 'marked',
+                    'mark_quantity' => [
+                        'numerator'   => 1,
+                        'denominator' => 1,
+                    ],
+                    'mark_code_info' => [
+                        'mark_code_raw' => $item[self::CHESTNYZNAK_PRODUCT_CODE],
+                    ],
+                ] + $result;
+                unset($result['product_code']);
             }
         }
 
@@ -1938,5 +1959,38 @@ HTML;
 
 
         return $result;
+    }
+
+    /**
+     * @param array $item
+     * @return string
+     */
+    private function measureMap($item = [])
+    {
+        $okei_map = [
+            '796' => 'piece',
+            '163' => 'gram',
+            '166' => 'kilogram',
+            '168' => 'ton',
+            '4'   => 'centimeter',
+            '5'   => 'decimeter',
+            '6'   => 'meter',
+            '51'  => 'square_centimeter',
+            '53'  => 'square_decimeter',
+            '55'  => 'square_meter',
+            '3'   => 'milliliter',
+            '112' => 'liter',
+            '113' => 'cubic_meter',
+            ''    => 'another',
+        ];
+
+        if (!empty($item['stock_unit_code'])) {
+            if (isset($okei_map[$item['stock_unit_code']])) {
+                return $okei_map[$item['stock_unit_code']];
+            }
+            return $okei_map[''];
+        }
+
+        return $okei_map['796'];
     }
 }
