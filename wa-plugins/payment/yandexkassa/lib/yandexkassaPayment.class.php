@@ -173,6 +173,19 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             ) {
                 $attempt = $unique_native_ids ? count($unique_native_ids) : 0;
                 $payment = $this->createPayment($order, $type, $attempt);
+                if ($this->manual_capture && $this->receipt) {
+                    $temp_order = new waTEMPorderModel();
+                    $receipt = $this->getReceiptData($order);
+                    if (!empty($receipt)) {
+                        $temp_order->set($fields['order_id'], json_encode($receipt));
+                        if (waSystemConfig::isDebug()) {
+                            self::log($this->id, array(
+                                'order_id' => $fields['order_id'],
+                                'receipt'  => $receipt,
+                            ));
+                        }
+                    }
+                }
             } else {
                 $payment = $actual_transaction_data;
             }
@@ -242,26 +255,66 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
         try {
             $transaction = $transaction_raw_data['transaction'];
 
-
             $payment = $this->getPaymentInfo($transaction['native_id']);
+            $debug = array();
+            $receipt = null;
+            if ($this->manual_capture && $this->receipt) {
+                $temp_order = new waTEMPorderModel();
+                $temp_order_str = $temp_order->get($transaction['order_id']);
+                $json_string = $temp_order_str ? key($temp_order_str) : null;
+                $debug['temp_order_str'] = $json_string;
+                $receipt = $json_string ? json_decode($json_string, true) : null;
+                $debug['temp_order'] = $receipt;
+            }
 
             if (!empty($payment['status']) && ($payment['status'] === 'waiting_for_capture')) {
-
-
                 if (!empty($transaction_raw_data['order_data'])) {
                     $order = waOrder::factory($transaction_raw_data['order_data']);
                     //handle changed amount
                     $transaction['amount'] = $order->total;
                     $transaction['currency_id'] = $order->currency;
-                    $transaction['receipt'] = $this->getReceiptData($order);
-                } elseif ($this->receipt && !empty($payment['receipt'])) {
+                    $receipt = $this->getReceiptData($order);
+                    $debug['receipt1'] = $receipt;
+                } elseif ($this->receipt && !empty($payment['receipt']) && !$this->manual_capture) {
                     $transaction['receipt'] = $payment['receipt'];
                 }
 
                 $hash = md5(var_export($transaction, true));
-
+                if (!empty($receipt) && !$this->manual_capture) {
+                    $transaction['receipt'] = $receipt;
+                }
                 $payment = $this->apiQuery('capture', $transaction, $hash);
                 $transaction_data = $this->formalizeData($payment);
+                $debug['status'] = $payment['status'];
+                if ($payment['status'] === 'succeeded' && $this->manual_capture && !empty($receipt)) {
+                    $receipt['type'] = 'payment';
+                    $receipt['payment_id'] = $payment['id'];
+                    $receipt['send'] = true;
+                    $items = ifset($receipt, 'items', array());
+                    $total = 0;
+                    $currency = "RUB";
+                    foreach ($items as $item) {
+                        $total += $item['amount']['value'] * $item['quantity'];
+                        $currency = $item['amount']['currency'];
+                    }
+                    $receipt['settlements'] = [[
+                        'type'   => 'cashless',
+                        'amount' => [
+                            'value'    => number_format($total, 2, '.', ''),
+                            'currency' => $currency,
+                        ],
+                    ]];
+                    $debug['receipt2'] = $receipt;
+                    if (waSystemConfig::isDebug()) {
+                        self::log($this->id, $debug);
+                    }
+                    $this->apiQuery('send_receipt', $receipt, md5(var_export($payment['id'], true)));
+                } else {
+                    $debug['receipt3'] = $receipt;
+                    if (waSystemConfig::isDebug()) {
+                        self::log($this->id, $debug);
+                    }
+                }
             } else {
                 $transaction_data = $this->handlePayment($payment);
             }
@@ -393,7 +446,7 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
             );
         }
 
-        if (empty($data['receipt'])) {
+        if (empty($data['receipt']) || $this->manual_capture) {
             unset($data['receipt']);
         }
         $return = array(
@@ -456,6 +509,9 @@ class yandexkassaPayment extends waPayment implements waIPayment, waIPaymentCanc
                 }
                 break;
             case 'create_receipt':
+                $url .= 'receipts';
+                break;
+            case 'send_receipt': #https://api.yookassa.ru/v3/receipts
                 $url .= 'receipts';
                 break;
             case 'receipts':
